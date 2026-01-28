@@ -929,17 +929,35 @@ const wecomChannel = {
     },
 
     resolveAccount: (cfg: any, accountId?: string): WeComAccountConfig => {
-      const accounts = cfg.channels?.wecom?.accounts ?? {};
       const id = accountId ?? "default";
-      const account = accounts[id];
-      if (account) {
-        return { ...account, accountId: id };
+
+      // 优先从 channels.wecom 读取（Dashboard 配置）
+      const channelAccounts = cfg.channels?.wecom?.accounts ?? {};
+      const channelAccount = channelAccounts[id];
+      if (channelAccount) {
+        return { ...channelAccount, accountId: id };
       }
+
+      // 从 channels.wecom 基础配置读取（单账户模式）
+      const channelConfig = cfg.channels?.wecom;
+      if (channelConfig && channelConfig.corpId) {
+        return {
+          accountId: id,
+          enabled: channelConfig.enabled ?? true,
+          corpId: channelConfig.corpId,
+          corpSecret: channelConfig.corpSecret,
+          agentId: channelConfig.agentId,
+          token: channelConfig.token,
+          encodingAesKey: channelConfig.encodingAesKey,
+        };
+      }
+
+      // 从 plugins.entries.wecom 读取（插件配置）
       const pluginCfg = cfg.plugins?.entries?.wecom?.config;
       if (pluginCfg) {
         return {
           accountId: id,
-          enabled: true,
+          enabled: cfg.plugins?.entries?.wecom?.enabled ?? true,
           corpId: pluginCfg.corpId,
           corpSecret: pluginCfg.corpSecret,
           agentId: pluginCfg.agentId,
@@ -947,6 +965,7 @@ const wecomChannel = {
           encodingAesKey: pluginCfg.encodingAesKey,
         };
       }
+
       return { accountId: id, enabled: false } as WeComAccountConfig;
     },
 
@@ -1046,7 +1065,51 @@ const wecomChannel = {
     },
   },
 
+  // 状态配置 - 用于 Dashboard 显示
   status: {
+    defaultRuntime: {
+      accountId: "default",
+      running: true,
+      lastStartAt: null,
+      lastStopAt: null,
+      lastError: null,
+    },
+
+    collectStatusIssues: async (_params: any): Promise<any[]> => {
+      return [];
+    },
+
+    buildChannelSummary: ({ snapshot, account }: { snapshot: any; account: any }): any => ({
+      configured: Boolean(account?.corpId?.trim()),
+      running: snapshot?.running ?? true,
+      mode: "webhook",
+      lastStartAt: snapshot?.lastStartAt ?? null,
+      lastStopAt: snapshot?.lastStopAt ?? null,
+      lastError: snapshot?.lastError ?? null,
+      probe: snapshot?.probe,
+      lastProbeAt: snapshot?.lastProbeAt ?? null,
+    }),
+
+    probeAccount: async ({ account, timeoutMs }: { account: WeComAccountConfig; timeoutMs?: number }): Promise<any> => {
+      if (!account.corpId || !account.corpSecret) {
+        return { ok: false, error: "未配置企业微信凭证" };
+      }
+      try {
+        const token = await getAccessToken(account);
+        return {
+          ok: true,
+          corpId: account.corpId,
+          agentId: account.agentId,
+          hasToken: Boolean(token),
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "探测失败",
+        };
+      }
+    },
+
     getHealth: async () => ({ healthy: true }),
     getDiagnostics: async () => ({ cachedTokens: tokenCache.size }),
   },

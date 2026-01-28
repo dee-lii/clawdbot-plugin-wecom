@@ -5,6 +5,7 @@
   "description": "企业微信消息渠道插件",
   "entrypoint": "./index.ts",
   "kind": "channel",
+  "channels": ["wecom"],
   "configurable": true,
   "configSchema": {
     "type": "object",
