@@ -308,6 +308,39 @@ async function processInboundMessage(
   });
 }
 
+// 检查 IP 是否在白名单中
+function isWeComIpAllowed(req: IncomingMessage): boolean {
+  // 企业微信服务器 IP 段
+  const wecomIpRanges = [
+    "101.226.103.",
+    "101.226.62.",
+    "140.207.54.",
+  ];
+
+  // 获取客户端 IP（考虑反向代理）
+  const forwardedFor = req.headers["x-forwarded-for"];
+  const realIp = req.headers["x-real-ip"];
+  let clientIp = req.socket.remoteAddress || "";
+
+  // 如果有反向代理，使用转发的 IP
+  if (typeof forwardedFor === "string") {
+    clientIp = forwardedFor.split(",")[0].trim();
+  } else if (typeof realIp === "string") {
+    clientIp = realIp;
+  }
+
+  // 移除 IPv6 前缀
+  clientIp = clientIp.replace(/^::ffff:/, "");
+
+  // 本地开发环境放行
+  if (clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "localhost") {
+    return true;
+  }
+
+  // 检查是否在企业微信 IP 段内
+  return wecomIpRanges.some((range) => clientIp.startsWith(range));
+}
+
 // HTTP Handler
 export async function handleWeComWebhook(
   req: IncomingMessage,
@@ -318,6 +351,15 @@ export async function handleWeComWebhook(
 
   if (!pathname.startsWith("/webhooks/wecom")) {
     return false;
+  }
+
+  // IP 白名单检查
+  if (!isWeComIpAllowed(req)) {
+    const clientIp = req.socket.remoteAddress || "unknown";
+    pluginLogger?.warn(`拒绝非企业微信 IP 访问: ${clientIp}`);
+    res.statusCode = 403;
+    res.end("Forbidden");
+    return true;
   }
 
   const query = parseQuery(req.url ?? "");
