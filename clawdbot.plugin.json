@@ -1,27 +1,67 @@
 {
   "id": "wecom",
   "name": "企业微信 Channel",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "企业微信消息渠道插件",
   "entrypoint": "./index.ts",
   "kind": "channel",
+  "configurable": true,
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "corpId": { "type": "string" },
-      "corpSecret": { "type": "string" },
-      "agentId": { "type": "string" },
-      "token": { "type": "string" },
-      "encodingAesKey": { "type": "string" }
+      "corpId": {
+        "type": "string",
+        "title": "企业ID (CorpID)",
+        "description": "在企业微信管理后台 -> 我的企业 中获取"
+      },
+      "corpSecret": {
+        "type": "string",
+        "title": "应用密钥 (Secret)",
+        "description": "在应用管理 -> 自建应用详情页获取"
+      },
+      "agentId": {
+        "type": "string",
+        "title": "应用ID (AgentID)",
+        "description": "在应用管理 -> 自建应用中获取"
+      },
+      "token": {
+        "type": "string",
+        "title": "回调Token",
+        "description": "在应用 -> 接收消息 -> API接收中设置"
+      },
+      "encodingAesKey": {
+        "type": "string",
+        "title": "消息加密密钥 (EncodingAESKey)",
+        "description": "在应用 -> 接收消息 -> API接收中设置，43位字符"
+      }
     },
     "required": ["corpId", "corpSecret", "agentId", "token", "encodingAesKey"]
   },
   "uiHints": {
-    "corpId": { "label": "企业ID (CorpID)" },
-    "corpSecret": { "label": "应用密钥 (Secret)", "sensitive": true },
-    "agentId": { "label": "应用ID (AgentID)" },
-    "token": { "label": "回调Token", "sensitive": true },
-    "encodingAesKey": { "label": "消息加密密钥 (EncodingAESKey)", "sensitive": true }
-  }
+    "corpId": {
+      "label": "企业ID (CorpID)",
+      "placeholder": "ww1234567890abcdef"
+    },
+    "corpSecret": {
+      "label": "应用密钥 (Secret)",
+      "sensitive": true,
+      "placeholder": "应用密钥"
+    },
+    "agentId": {
+      "label": "应用ID (AgentID)",
+      "placeholder": "1000002"
+    },
+    "token": {
+      "label": "回调Token",
+      "sensitive": true,
+      "placeholder": "回调Token"
+    },
+    "encodingAesKey": {
+      "label": "消息加密密钥 (EncodingAESKey)",
+      "sensitive": true,
+      "placeholder": "43位加密密钥"
+    }
+  },
+  "setupHint": "请在企业微信管理后台获取配置信息，回调URL设置为: https://你的域名/webhooks/wecom"
 }

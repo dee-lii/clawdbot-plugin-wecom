@@ -752,6 +752,137 @@ async function createMenu(config: WeComAccountConfig, logger: any): Promise<void
   }
 }
 
+// Onboarding 适配器 - 用于 Dashboard 和 CLI 配置
+const wecomOnboardingAdapter = {
+  channel: "wecom" as const,
+
+  async setup(params: {
+    cfg: any;
+    prompter: any;
+    accountId?: string;
+    logger?: any;
+  }): Promise<{ cfg: any; accountId: string }> {
+    const { cfg, prompter, accountId = "default" } = params;
+
+    // 获取现有配置
+    const existing = cfg.plugins?.entries?.wecom?.config ?? {};
+
+    await prompter.note(
+      [
+        "企业微信配置向导",
+        "",
+        "请准备以下信息：",
+        "1. 企业ID (CorpID) - 在企业微信管理后台 -> 我的企业 中获取",
+        "2. 应用ID (AgentID) - 在应用管理 -> 自建应用中获取",
+        "3. 应用密钥 (Secret) - 在自建应用详情页获取",
+        "4. 回调Token和EncodingAESKey - 在应用 -> 接收消息 中设置",
+        "",
+        "回调URL请设置为: https://你的域名/webhooks/wecom",
+      ].join("\n"),
+      "企业微信设置"
+    );
+
+    const corpId = await prompter.text({
+      message: "企业ID (CorpID)",
+      placeholder: "ww1234567890abcdef",
+      initialValue: existing.corpId ?? "",
+      validate: (v: string) => (v?.trim() ? undefined : "企业ID不能为空"),
+    });
+
+    const agentId = await prompter.text({
+      message: "应用ID (AgentID)",
+      placeholder: "1000002",
+      initialValue: existing.agentId ?? "",
+      validate: (v: string) => (v?.trim() ? undefined : "应用ID不能为空"),
+    });
+
+    const corpSecret = await prompter.password({
+      message: "应用密钥 (Secret)",
+      validate: (v: string) => (v?.trim() ? undefined : "应用密钥不能为空"),
+    });
+
+    const token = await prompter.text({
+      message: "回调Token",
+      placeholder: "设置接收消息时生成的Token",
+      initialValue: existing.token ?? "",
+      validate: (v: string) => (v?.trim() ? undefined : "Token不能为空"),
+    });
+
+    const encodingAesKey = await prompter.password({
+      message: "消息加密密钥 (EncodingAESKey)",
+      validate: (v: string) => {
+        if (!v?.trim()) return "EncodingAESKey不能为空";
+        if (v.length !== 43) return "EncodingAESKey长度应为43位";
+        return undefined;
+      },
+    });
+
+    // 更新配置
+    const newCfg = {
+      ...cfg,
+      plugins: {
+        ...cfg.plugins,
+        allow: [...new Set([...(cfg.plugins?.allow ?? []), "wecom"])],
+        entries: {
+          ...cfg.plugins?.entries,
+          wecom: {
+            ...cfg.plugins?.entries?.wecom,
+            enabled: true,
+            config: {
+              corpId: String(corpId).trim(),
+              corpSecret: String(corpSecret).trim(),
+              agentId: String(agentId).trim(),
+              token: String(token).trim(),
+              encodingAesKey: String(encodingAesKey).trim(),
+            },
+          },
+        },
+      },
+    };
+
+    await prompter.note(
+      [
+        "配置完成！",
+        "",
+        "请确保在企业微信管理后台设置：",
+        `接收消息URL: https://你的域名/webhooks/wecom`,
+        "",
+        "重启 gateway 后生效: clawdbot gateway restart",
+      ].join("\n"),
+      "完成"
+    );
+
+    return { cfg: newCfg, accountId };
+  },
+
+  // 配置验证
+  isConfigured(account: WeComAccountConfig): boolean {
+    return Boolean(
+      account.enabled &&
+        account.corpId?.trim() &&
+        account.corpSecret?.trim() &&
+        account.agentId?.trim() &&
+        account.token?.trim() &&
+        account.encodingAesKey?.trim()
+    );
+  },
+
+  // 描述账户
+  describeAccount(account: WeComAccountConfig): {
+    accountId: string;
+    enabled: boolean;
+    configured: boolean;
+    corpId?: string;
+  } {
+    return {
+      accountId: account.accountId,
+      enabled: account.enabled,
+      configured: this.isConfigured(account),
+      corpId: account.corpId,
+    };
+  },
+};
+
 // 定义渠道插件
 const wecomChannel = {
   id: "wecom",
@@ -766,12 +897,30 @@ const wecomChannel = {
     detailLabel: "企业微信 Enterprise WeChat",
   },
 
+  // 添加 onboarding 支持
+  onboarding: wecomOnboardingAdapter,
+
   capabilities: {
     chatTypes: ["direct"] as const,
     media: true,
     threads: false,
     reactions: false,
     streaming: false,
+  },
+
+  // 配置 schema（用于 Dashboard 显示）
+  configSchema: {
+    schema: {
+      type: "object",
+      properties: {
+        corpId: { type: "string", title: "企业ID (CorpID)" },
+        corpSecret: { type: "string", title: "应用密钥 (Secret)" },
+        agentId: { type: "string", title: "应用ID (AgentID)" },
+        token: { type: "string", title: "回调Token" },
+        encodingAesKey: { type: "string", title: "消息加密密钥" },
+      },
+      required: ["corpId", "corpSecret", "agentId", "token", "encodingAesKey"],
+    },
   },
 
   config: {
@@ -800,6 +949,40 @@ const wecomChannel = {
       }
       return { accountId: id, enabled: false } as WeComAccountConfig;
     },
+
+    // 添加更多配置方法
+    defaultAccountId: (_cfg: any): string => "default",
+
+    setAccountEnabled: ({ cfg, accountId, enabled }: { cfg: any; accountId: string; enabled: boolean }): any => {
+      return {
+        ...cfg,
+        plugins: {
+          ...cfg.plugins,
+          entries: {
+            ...cfg.plugins?.entries,
+            wecom: {
+              ...cfg.plugins?.entries?.wecom,
+              enabled,
+            },
+          },
+        },
+      };
+    },
+
+    isConfigured: (account: WeComAccountConfig): boolean => {
+      return Boolean(
+        account.corpId?.trim() &&
+          account.corpSecret?.trim() &&
+          account.agentId?.trim()
+      );
+    },
+
+    describeAccount: (account: WeComAccountConfig): any => ({
+      accountId: account.accountId,
+      enabled: account.enabled,
+      configured: Boolean(account.corpId?.trim()),
+      corpId: account.corpId,
+    }),
   },
 
   outbound: {
