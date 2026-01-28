@@ -392,6 +392,8 @@ async function processInboundMessage(
           console.log("[WECOM DEBUG] Payload keys:", Object.keys(payload));
           console.log("[WECOM DEBUG] Payload:", JSON.stringify(payload, null, 2).substring(0, 500));
 
+          let imageSent = false;
+
           // 处理图片 - 优先使用 mediaUrl
           if (payload.mediaUrl) {
             const imagePath = payload.mediaUrl;
@@ -401,14 +403,9 @@ async function processInboundMessage(
                 const mediaId = await uploadMedia(accountConfig, imagePath, "image");
                 await sendWeComImage(accountConfig, senderId, mediaId);
                 pluginLogger?.info("已发送图片到企业微信", { to: senderId, path: imagePath });
-                // 如果有文本，也发送
-                if (payload.text) {
-                  await sendWeComMessage(accountConfig, senderId, payload.text);
-                }
-                return;
+                imageSent = true;
               } catch (err) {
                 console.error("[WECOM ERROR] Failed to send mediaUrl image:", err);
-                // 失败则发送文本
               }
             }
           }
@@ -422,56 +419,63 @@ async function processInboundMessage(
                   const mediaId = await uploadMedia(accountConfig, imagePath, "image");
                   await sendWeComImage(accountConfig, senderId, mediaId);
                   pluginLogger?.info("已发送图片到企业微信", { to: senderId, path: imagePath });
+                  imageSent = true;
                 } catch (err) {
                   console.error("[WECOM ERROR] Failed to send mediaUrls image:", err);
                 }
               }
             }
-            // 如果有文本，也发送
-            if (payload.text) {
-              await sendWeComMessage(accountConfig, senderId, payload.text);
-            }
-            return;
           }
 
           // 处理旧格式的图片
-          if (payload.image) {
+          if (!imageSent && payload.image) {
             const imagePath = payload.image.path || payload.image.url;
             console.log("[WECOM DEBUG] Found image.path:", imagePath);
             if (imagePath && fs.existsSync(imagePath)) {
-              const mediaId = await uploadMedia(accountConfig, imagePath, "image");
-              await sendWeComImage(accountConfig, senderId, mediaId);
-              pluginLogger?.info("已发送图片到企业微信", { to: senderId, path: imagePath });
-              return;
+              try {
+                const mediaId = await uploadMedia(accountConfig, imagePath, "image");
+                await sendWeComImage(accountConfig, senderId, mediaId);
+                pluginLogger?.info("已发送图片到企业微信", { to: senderId, path: imagePath });
+                imageSent = true;
+              } catch (err) {
+                console.error("[WECOM ERROR] Failed to send image:", err);
+              }
             }
           }
 
           // 检查文本中是否包含图片路径（临时方案）
           const replyText = payload.text || payload.body || "";
-          const imagePathMatch = replyText.match(/\/[^\s]+\.(png|jpg|jpeg|gif|webp)/i);
-          if (imagePathMatch) {
-            const imagePath = imagePathMatch[0];
-            console.log("[WECOM DEBUG] Found image path in text:", imagePath);
-            if (fs.existsSync(imagePath)) {
-              try {
-                const mediaId = await uploadMedia(accountConfig, imagePath, "image");
-                await sendWeComImage(accountConfig, senderId, mediaId);
-                pluginLogger?.info("已发送图片到企业微信", { to: senderId, path: imagePath });
-                // 发送剩余文本（去掉图片路径）
-                const textWithoutPath = replyText.replace(imagePathMatch[0], "").trim();
-                if (textWithoutPath) {
-                  await sendWeComMessage(accountConfig, senderId, textWithoutPath);
+          if (!imageSent) {
+            const imagePathMatch = replyText.match(/\/[^\s]+\.(png|jpg|jpeg|gif|webp)/i);
+            if (imagePathMatch) {
+              const imagePath = imagePathMatch[0];
+              console.log("[WECOM DEBUG] Found image path in text:", imagePath);
+              if (fs.existsSync(imagePath)) {
+                try {
+                  const mediaId = await uploadMedia(accountConfig, imagePath, "image");
+                  await sendWeComImage(accountConfig, senderId, mediaId);
+                  pluginLogger?.info("已发送图片到企业微信", { to: senderId, path: imagePath });
+                  imageSent = true;
+                  // 发送剩余文本（去掉图片路径）
+                  const textWithoutPath = replyText.replace(imagePathMatch[0], "").trim();
+                  if (textWithoutPath && !textWithoutPath.match(/无法|失败|错误|缺失|Bug/)) {
+                    await sendWeComMessage(accountConfig, senderId, textWithoutPath);
+                  }
+                  return;
+                } catch (err) {
+                  console.error("[WECOM ERROR] Failed to send image from text:", err);
                 }
-                return;
-              } catch (err) {
-                console.error("[WECOM ERROR] Failed to send image from text:", err);
-                // 失败则发送原文本
               }
             }
           }
 
-          // 处理文本
+          // 处理文本 - 如果图片已发送且文本包含错误提示，则不发送文本
           if (replyText) {
+            if (imageSent && replyText.match(/无法|失败|错误|缺失|Bug|抱歉.*配置/)) {
+              console.log("[WECOM DEBUG] Image sent successfully, skipping error message text");
+              pluginLogger?.info("图片已发送，跳过错误提示文本");
+              return;
+            }
             await sendWeComMessage(accountConfig, senderId, replyText);
             pluginLogger?.info("已发送回复到企业微信", { to: senderId });
           }
