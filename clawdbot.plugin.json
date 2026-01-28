@@ -1,0 +1,27 @@
+{
+  "id": "wecom",
+  "name": "企业微信 Channel",
+  "version": "1.0.0",
+  "description": "企业微信消息渠道插件",
+  "entrypoint": "./index.ts",
+  "kind": "channel",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "corpId": { "type": "string" },
+      "corpSecret": { "type": "string" },
+      "agentId": { "type": "string" },
+      "token": { "type": "string" },
+      "encodingAesKey": { "type": "string" }
+    },
+    "required": ["corpId", "corpSecret", "agentId", "token", "encodingAesKey"]
+  },
+  "uiHints": {
+    "corpId": { "label": "企业ID (CorpID)" },
+    "corpSecret": { "label": "应用密钥 (Secret)", "sensitive": true },
+    "agentId": { "label": "应用ID (AgentID)" },
+    "token": { "label": "回调Token", "sensitive": true },
+    "encodingAesKey": { "label": "消息加密密钥 (EncodingAESKey)", "sensitive": true }
+  }
+}

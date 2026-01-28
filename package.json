@@ -1,0 +1,21 @@
+{
+  "name": "@clawdbot/wecom",
+  "version": "1.0.0",
+  "description": "企业微信消息渠道插件 for Clawdbot",
+  "main": "index.ts",
+  "type": "module",
+  "clawdbot": {
+    "extensions": ["./index.ts"],
+    "channel": {
+      "id": "wecom",
+      "label": "企业微信",
+      "selectionLabel": "企业微信 (WeCom)",
+      "blurb": "企业微信消息渠道集成",
+      "order": 80,
+      "aliases": ["wechat-work", "wework"]
+    }
+  },
+  "keywords": ["clawdbot", "wecom", "wechat-work", "channel"],
+  "author": "deelii",
+  "license": "MIT"
+}
