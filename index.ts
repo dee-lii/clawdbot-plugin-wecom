@@ -296,7 +296,7 @@ async function processInboundMessage(
     accountId: accountConfig.accountId,
     peer: {
       kind: "dm",
-      id: senderId,
+      id: `wecom:${senderId}`,  // 添加渠道前缀避免与其他渠道冲突
     },
   });
 
