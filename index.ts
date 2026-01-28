@@ -392,10 +392,52 @@ async function processInboundMessage(
           console.log("[WECOM DEBUG] Payload keys:", Object.keys(payload));
           console.log("[WECOM DEBUG] Payload:", JSON.stringify(payload, null, 2).substring(0, 500));
 
-          // 处理图片
+          // 处理图片 - 优先使用 mediaUrl
+          if (payload.mediaUrl) {
+            const imagePath = payload.mediaUrl;
+            console.log("[WECOM DEBUG] Found mediaUrl:", imagePath);
+            if (fs.existsSync(imagePath)) {
+              try {
+                const mediaId = await uploadMedia(accountConfig, imagePath, "image");
+                await sendWeComImage(accountConfig, senderId, mediaId);
+                pluginLogger?.info("已发送图片到企业微信", { to: senderId, path: imagePath });
+                // 如果有文本，也发送
+                if (payload.text) {
+                  await sendWeComMessage(accountConfig, senderId, payload.text);
+                }
+                return;
+              } catch (err) {
+                console.error("[WECOM ERROR] Failed to send mediaUrl image:", err);
+                // 失败则发送文本
+              }
+            }
+          }
+
+          // 处理多个图片 - mediaUrls 数组
+          if (payload.mediaUrls && Array.isArray(payload.mediaUrls) && payload.mediaUrls.length > 0) {
+            console.log("[WECOM DEBUG] Found mediaUrls:", payload.mediaUrls);
+            for (const imagePath of payload.mediaUrls) {
+              if (fs.existsSync(imagePath)) {
+                try {
+                  const mediaId = await uploadMedia(accountConfig, imagePath, "image");
+                  await sendWeComImage(accountConfig, senderId, mediaId);
+                  pluginLogger?.info("已发送图片到企业微信", { to: senderId, path: imagePath });
+                } catch (err) {
+                  console.error("[WECOM ERROR] Failed to send mediaUrls image:", err);
+                }
+              }
+            }
+            // 如果有文本，也发送
+            if (payload.text) {
+              await sendWeComMessage(accountConfig, senderId, payload.text);
+            }
+            return;
+          }
+
+          // 处理旧格式的图片
           if (payload.image) {
             const imagePath = payload.image.path || payload.image.url;
-            console.log("[WECOM DEBUG] Image path:", imagePath);
+            console.log("[WECOM DEBUG] Found image.path:", imagePath);
             if (imagePath && fs.existsSync(imagePath)) {
               const mediaId = await uploadMedia(accountConfig, imagePath, "image");
               await sendWeComImage(accountConfig, senderId, mediaId);
@@ -422,7 +464,7 @@ async function processInboundMessage(
                 }
                 return;
               } catch (err) {
-                console.error("[WECOM ERROR] Failed to send image:", err);
+                console.error("[WECOM ERROR] Failed to send image from text:", err);
                 // 失败则发送原文本
               }
             }
