@@ -4,7 +4,6 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { FormData, File } from "formdata-node";
 
 // 企业微信账户配置
 interface WeComAccountConfig {
@@ -195,13 +194,37 @@ async function uploadMedia(
   const fileBuffer = fs.readFileSync(filePath);
   const fileName = path.basename(filePath);
 
-  // 创建 FormData
-  const formData = new FormData();
-  formData.append("media", new File([fileBuffer], fileName));
+  // 获取文件 MIME 类型
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+  };
+  const contentType = mimeTypes[ext] || "application/octet-stream";
+
+  // 构建 multipart/form-data
+  const boundary = `----WebKitFormBoundary${Date.now()}${Math.random().toString(36)}`;
+  const parts: Buffer[] = [];
+
+  // 添加文件字段
+  parts.push(Buffer.from(`--${boundary}\r\n`));
+  parts.push(Buffer.from(`Content-Disposition: form-data; name="media"; filename="${fileName}"\r\n`));
+  parts.push(Buffer.from(`Content-Type: ${contentType}\r\n\r\n`));
+  parts.push(fileBuffer);
+  parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
+
+  const body = Buffer.concat(parts);
 
   const response = await fetch(url, {
     method: "POST",
-    body: formData as any,
+    headers: {
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
+      "Content-Length": String(body.length),
+    },
+    body,
   });
 
   const result = (await response.json()) as {
@@ -365,9 +388,14 @@ async function processInboundMessage(
     dispatcherOptions: {
       deliver: async (payload: any) => {
         try {
+          // 调试日志
+          console.log("[WECOM DEBUG] Payload keys:", Object.keys(payload));
+          console.log("[WECOM DEBUG] Payload:", JSON.stringify(payload, null, 2).substring(0, 500));
+
           // 处理图片
           if (payload.image) {
             const imagePath = payload.image.path || payload.image.url;
+            console.log("[WECOM DEBUG] Image path:", imagePath);
             if (imagePath && fs.existsSync(imagePath)) {
               const mediaId = await uploadMedia(accountConfig, imagePath, "image");
               await sendWeComImage(accountConfig, senderId, mediaId);
@@ -376,13 +404,37 @@ async function processInboundMessage(
             }
           }
 
-          // 处理文本
+          // 检查文本中是否包含图片路径（临时方案）
           const replyText = payload.text || payload.body || "";
+          const imagePathMatch = replyText.match(/\/[^\s]+\.(png|jpg|jpeg|gif|webp)/i);
+          if (imagePathMatch) {
+            const imagePath = imagePathMatch[0];
+            console.log("[WECOM DEBUG] Found image path in text:", imagePath);
+            if (fs.existsSync(imagePath)) {
+              try {
+                const mediaId = await uploadMedia(accountConfig, imagePath, "image");
+                await sendWeComImage(accountConfig, senderId, mediaId);
+                pluginLogger?.info("已发送图片到企业微信", { to: senderId, path: imagePath });
+                // 发送剩余文本（去掉图片路径）
+                const textWithoutPath = replyText.replace(imagePathMatch[0], "").trim();
+                if (textWithoutPath) {
+                  await sendWeComMessage(accountConfig, senderId, textWithoutPath);
+                }
+                return;
+              } catch (err) {
+                console.error("[WECOM ERROR] Failed to send image:", err);
+                // 失败则发送原文本
+              }
+            }
+          }
+
+          // 处理文本
           if (replyText) {
             await sendWeComMessage(accountConfig, senderId, replyText);
             pluginLogger?.info("已发送回复到企业微信", { to: senderId });
           }
         } catch (err) {
+          console.error("[WECOM ERROR]", err);
           pluginLogger?.error(`发送消息失败: ${String(err)}`);
           throw err;
         }
