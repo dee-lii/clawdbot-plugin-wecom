@@ -2,6 +2,9 @@ import type { ClawdbotPluginApi, PluginRuntime } from "clawdbot/plugin-sdk";
 import { emptyPluginConfigSchema } from "clawdbot/plugin-sdk";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import { FormData, File } from "formdata-node";
 
 // 企业微信账户配置
 interface WeComAccountConfig {
@@ -179,6 +182,73 @@ function resolveAccountConfig(accountId?: string): WeComAccountConfig {
   return { accountId: id, enabled: false } as WeComAccountConfig;
 }
 
+// 上传临时素材（图片）
+async function uploadMedia(
+  config: WeComAccountConfig,
+  filePath: string,
+  type: "image" | "voice" | "video" | "file" = "image"
+): Promise<string> {
+  const accessToken = await getAccessToken(config);
+  const url = `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${accessToken}&type=${type}`;
+
+  // 读取文件
+  const fileBuffer = fs.readFileSync(filePath);
+  const fileName = path.basename(filePath);
+
+  // 创建 FormData
+  const formData = new FormData();
+  formData.append("media", new File([fileBuffer], fileName));
+
+  const response = await fetch(url, {
+    method: "POST",
+    body: formData as any,
+  });
+
+  const result = (await response.json()) as {
+    errcode?: number;
+    errmsg?: string;
+    type?: string;
+    media_id?: string;
+    created_at?: number;
+  };
+
+  if (result.errcode && result.errcode !== 0) {
+    throw new Error(`上传素材失败: ${result.errcode} ${result.errmsg}`);
+  }
+
+  if (!result.media_id) {
+    throw new Error("上传素材失败: 未返回 media_id");
+  }
+
+  return result.media_id;
+}
+
+// 发送图片消息
+async function sendWeComImage(
+  config: WeComAccountConfig,
+  toUser: string,
+  mediaId: string
+): Promise<void> {
+  const accessToken = await getAccessToken(config);
+  const url = `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${accessToken}`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      touser: toUser,
+      msgtype: "image",
+      agentid: parseInt(config.agentId, 10),
+      image: { media_id: mediaId },
+    }),
+  });
+
+  const result = (await response.json()) as { errcode: number; errmsg: string };
+  if (result.errcode !== 0) {
+    throw new Error(`发送图片失败: ${result.errcode} ${result.errmsg}`);
+  }
+}
+
 // 发送消息到企业微信
 async function sendWeComMessage(
   config: WeComAccountConfig,
@@ -294,10 +364,27 @@ async function processInboundMessage(
     cfg: config,
     dispatcherOptions: {
       deliver: async (payload: any) => {
-        const replyText = payload.text || payload.body || "";
-        if (replyText) {
-          await sendWeComMessage(accountConfig, senderId, replyText);
-          pluginLogger?.info("已发送回复到企业微信", { to: senderId });
+        try {
+          // 处理图片
+          if (payload.image) {
+            const imagePath = payload.image.path || payload.image.url;
+            if (imagePath && fs.existsSync(imagePath)) {
+              const mediaId = await uploadMedia(accountConfig, imagePath, "image");
+              await sendWeComImage(accountConfig, senderId, mediaId);
+              pluginLogger?.info("已发送图片到企业微信", { to: senderId, path: imagePath });
+              return;
+            }
+          }
+
+          // 处理文本
+          const replyText = payload.text || payload.body || "";
+          if (replyText) {
+            await sendWeComMessage(accountConfig, senderId, replyText);
+            pluginLogger?.info("已发送回复到企业微信", { to: senderId });
+          }
+        } catch (err) {
+          pluginLogger?.error(`发送消息失败: ${String(err)}`);
+          throw err;
         }
       },
       onError: (err: any, info: any) => {

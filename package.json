@@ -15,6 +15,9 @@
       "aliases": ["wechat-work", "wework"]
     }
   },
+  "dependencies": {
+    "formdata-node": "^6.0.3"
+  },
   "keywords": ["clawdbot", "wecom", "wechat-work", "channel"],
   "author": "deelii",
   "license": "MIT"
