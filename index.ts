@@ -440,14 +440,15 @@ export async function handleWeComWebhook(
     return false;
   }
 
-  // IP 白名单检查
-  if (!isWeComIpAllowed(req)) {
-    const clientIp = req.socket.remoteAddress || "unknown";
-    pluginLogger?.warn(`拒绝非企业微信 IP 访问: ${clientIp}`);
-    res.statusCode = 403;
-    res.end("Forbidden");
-    return true;
-  }
+  // 注释掉 IP 白名单检查，因为企业微信使用腾讯云动态 IP
+  // 依赖签名验证就足够安全
+  // if (!isWeComIpAllowed(req)) {
+  //   const clientIp = req.socket.remoteAddress || "unknown";
+  //   pluginLogger?.warn(`拒绝非企业微信 IP 访问: ${clientIp}`);
+  //   res.statusCode = 403;
+  //   res.end("Forbidden");
+  //   return true;
+  // }
 
   const query = parseQuery(req.url ?? "");
   const signature = query.msg_signature;
