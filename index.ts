@@ -469,13 +469,22 @@ async function processInboundMessage(
             }
           }
 
-          // 处理文本 - 如果图片已发送且文本包含错误提示，则不发送文本
+          // 处理文本 - 智能过滤错误提示
           if (replyText) {
-            if (imageSent && replyText.match(/无法|失败|错误|缺失|Bug|抱歉.*配置/)) {
-              console.log("[WECOM DEBUG] Image sent successfully, skipping error message text");
-              pluginLogger?.info("图片已发送，跳过错误提示文本");
-              return;
+            // 如果图片已发送，检查文本是否是错误提示
+            if (imageSent) {
+              // 检查是否是错误提示（开头包含负面词汇）
+              const isErrorMessage = /^(抱歉|很抱歉|非常抱歉|无法|失败|错误)/.test(replyText.trim());
+              // 或者包含配置缺失相关的错误
+              const isConfigError = /corpId|配置.*缺失|配置.*不完整|Bug/.test(replyText);
+
+              if (isErrorMessage || isConfigError) {
+                console.log("[WECOM DEBUG] Image sent successfully, skipping error message text");
+                pluginLogger?.info("图片已发送，跳过错误提示文本");
+                return;
+              }
             }
+
             await sendWeComMessage(accountConfig, senderId, replyText);
             pluginLogger?.info("已发送回复到企业微信", { to: senderId });
           }
